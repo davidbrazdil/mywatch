@@ -12,23 +12,25 @@ import android.os.Handler;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 
-public class BluetoothLeScanner {
+import java.util.List;
+
+public class DeviceScanner {
     private final BluetoothAdapter mBluetoothAdapter;
     private final Context mContext;
     private final Handler mHandler;
     private final long mScanPeriod;
-    private final ScanCallback mScanCallback;
+    private final DeviceScannerCallback mOwnerCallback;
 
     private static final long DEFAULT_SCAN_PERIOD = 60 * 1000;
 
-    public BluetoothLeScanner(Context context, ScanCallback scanCallback) {
-        this(context, scanCallback, DEFAULT_SCAN_PERIOD);
+    public DeviceScanner(Context context, DeviceScannerCallback callback) {
+        this(context, callback, DEFAULT_SCAN_PERIOD);
     }
 
-    public BluetoothLeScanner(Context context, ScanCallback scanCallback, long scanPeriod) {
+    public DeviceScanner(Context context, DeviceScannerCallback callback, long scanPeriod) {
         mContext = context;
         mScanPeriod = scanPeriod;
-        mScanCallback = scanCallback;
+        mOwnerCallback = callback;
         mHandler = new Handler();
         mBluetoothAdapter = ((BluetoothManager)
                 mContext.getSystemService(Context.BLUETOOTH_SERVICE)).getAdapter();
@@ -42,16 +44,26 @@ public class BluetoothLeScanner {
         mHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                BluetoothLeScanner.this.stopScan();
+                DeviceScanner.this.stopScan();
             }
         }, mScanPeriod);
 
-        mBluetoothAdapter.getBluetoothLeScanner().startScan(mScanCallback);
+        mBluetoothAdapter.getBluetoothLeScanner().startScan(mFrameworkCallback);
+        mOwnerCallback.onScanStarted();
     }
 
     public void stopScan() {
-        mBluetoothAdapter.getBluetoothLeScanner().stopScan(mScanCallback);
+        mBluetoothAdapter.getBluetoothLeScanner().stopScan(mFrameworkCallback);
+        mOwnerCallback.onScanStopped();
     }
+
+    private final ScanCallback mFrameworkCallback = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            super.onScanResult(callbackType, result);
+            mOwnerCallback.onDeviceFound(result.getDevice());
+        }
+    };
 
     public boolean hasLocationPermission() {
         return hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
