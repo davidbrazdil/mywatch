@@ -3,8 +3,6 @@ package me.brazdil.mywatch;
 import android.bluetooth.BluetoothDevice;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Color;
-import android.support.annotation.Nullable;
 import android.support.constraint.ConstraintLayout;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -13,26 +11,24 @@ import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import me.brazdil.libmywatch.DeviceScanner;
-import me.brazdil.libmywatch.DeviceScannerCallback;
-
 public class MainActivity extends AppCompatActivity implements DeviceScannerCallback {
+    private static final String TAG = MainActivity.class.getSimpleName();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         mDeviceScanner = new DeviceScanner(this, this);
+        mDeviceServiceConnection = new DeviceServiceConnection(this);
 
         mScanningProgressBar = (ProgressBar) findViewById(R.id.progScanning);
         mScanningProgressBar.setVisibility(View.INVISIBLE);
@@ -71,22 +67,32 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
         }
 
         mDeviceScanner.startScan();
+        Log.d(TAG, "Starting a scan");
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+        mDeviceServiceConnection.startBind();
         startDeviceScan();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        mDeviceServiceConnection.stopBind();
     }
 
     @Override
     public void onScanStarted() {
         mScanningProgressBar.setVisibility(View.VISIBLE);
+        Log.d(TAG, "Scan started");
     }
 
     @Override
     public void onScanStopped() {
         mScanningProgressBar.setVisibility(View.INVISIBLE);
+        Log.d(TAG, "Scan stopped");
     }
 
     @Override
@@ -95,8 +101,9 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
+    public void onRequestPermissionsResult(int requestCode, String permissions[],
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         switch (requestCode) {
             case ID_REQUEST_LOCATION_PERMISSION:
@@ -124,7 +131,12 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
             mTopLayout.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    Toast.makeText(MainActivity.this, "Selected device: " + device.getAddress(), Toast.LENGTH_SHORT).show();
+                    mDeviceServiceConnection.getService().connect(device.getAddress());
+
+                    Intent intent = new Intent(MainActivity.this, DeviceActivity.class);
+                    intent.putExtra(Constants.EXTRA_NEW_DEVICE_ADDR, device.getAddress());
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+                    MainActivity.this.startActivity(intent);
                 }
             });
         }
@@ -167,4 +179,6 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
     private DeviceListAdapter mDeviceAdapter = new DeviceListAdapter();
 
     private ProgressBar mScanningProgressBar;
+
+    private DeviceServiceConnection mDeviceServiceConnection;
 }

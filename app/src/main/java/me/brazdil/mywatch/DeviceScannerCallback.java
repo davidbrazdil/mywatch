@@ -1,4 +1,4 @@
-package me.brazdil.libmywatch;
+package me.brazdil.mywatch;
 
 import android.bluetooth.BluetoothDevice;
 
