@@ -13,25 +13,26 @@ import java.util.List;
 import java.util.Set;
 
 public class DeviceService extends Service {
-    public class DeviceConnectionServiceBinder extends Binder {
-        public DeviceService getService() { return DeviceService.this; }
+    public static final String EXTRA_ADDRESS = "device_addr";
+
+    private List<DeviceConnection> mDeviceConnections = new ArrayList<>();
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        super.onStartCommand(intent, flags, startId);
+        if (intent.hasExtra(EXTRA_ADDRESS)) {
+            connect(intent.getStringExtra(EXTRA_ADDRESS));
+        } else {
+            for (String addr : getDeviceAddressesSetFromPrefs()) {
+                connect(addr);
+            }
+        }
+        return Service.START_STICKY;
     }
 
-    private DeviceConnectionServiceBinder mBinder = new DeviceConnectionServiceBinder();
-
     @Override
-    public IBinder onBind(Intent intent) { return mBinder; }
-
-    private List<DeviceConnection> mDeviceConnections;
-
-    @Override
-    public void onCreate() {
-        super.onCreate();
-
-        mDeviceConnections = new ArrayList<>();
-        for (String addr : getDeviceAddressesSetFromPrefs()) {
-            mDeviceConnections.add(new DeviceConnection(this, addr));
-        }
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 
     private Set<String> getDeviceAddressesSetFromPrefs() {

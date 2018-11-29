@@ -1,5 +1,6 @@
 package me.brazdil.mywatch;
 
+import android.bluetooth.BluetoothClass;
 import android.bluetooth.BluetoothDevice;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -28,7 +29,6 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
         setContentView(R.layout.activity_main);
 
         mDeviceScanner = new DeviceScanner(this, this);
-        mDeviceServiceConnection = new DeviceServiceConnection(this);
 
         mScanningProgressBar = (ProgressBar) findViewById(R.id.progScanning);
         mScanningProgressBar.setVisibility(View.INVISIBLE);
@@ -73,14 +73,7 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
     @Override
     protected void onStart() {
         super.onStart();
-        mDeviceServiceConnection.startBind();
         startDeviceScan();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        mDeviceServiceConnection.stopBind();
     }
 
     @Override
@@ -131,12 +124,12 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
             mTopLayout.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    mDeviceServiceConnection.getService().connect(device.getAddress());
+                    Intent serviceIntent = new Intent(MainActivity.this, DeviceService.class);
+                    serviceIntent.putExtra(DeviceService.EXTRA_ADDRESS, device.getAddress());
+                    MainActivity.this.startService(serviceIntent);
 
-                    Intent intent = new Intent(MainActivity.this, DeviceActivity.class);
-                    intent.putExtra(Constants.EXTRA_NEW_DEVICE_ADDR, device.getAddress());
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
-                    MainActivity.this.startActivity(intent);
+                    Intent activityIntent = new Intent(MainActivity.this, DeviceActivity.class);
+                    MainActivity.this.startActivity(activityIntent);
                 }
             });
         }
@@ -179,6 +172,4 @@ public class MainActivity extends AppCompatActivity implements DeviceScannerCall
     private DeviceListAdapter mDeviceAdapter = new DeviceListAdapter();
 
     private ProgressBar mScanningProgressBar;
-
-    private DeviceServiceConnection mDeviceServiceConnection;
 }
