@@ -13,6 +13,7 @@ import android.content.Intent;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.GregorianCalendar;
@@ -25,6 +26,7 @@ public class DeviceConnection extends BluetoothGattCallback {
     private static final String TAG = DeviceConnection.class.getSimpleName();
 
     public static final String ACTION_DEVICE_UPDATE = "me.brazdil.mywatch.DeviceConnection.UPDATE";
+    public static final String ACTION_DEVICE_SYNC_TIME = "me.brazdil.mywatch.DeviceConnection.SYNC_TIME";
 
     public static final String EXTRA_NAME = "device_name";
     public static final String EXTRA_ADDRESS = "device_addr";
@@ -33,6 +35,7 @@ public class DeviceConnection extends BluetoothGattCallback {
     public static final String EXTRA_SERIAL_NUMBER = "device_serial_number";
     public static final String EXTRA_SOFTWARE_REVISION = "device_software_revision";
     public static final String EXTRA_WATCH_CLOCK = "device_watch_clock";
+    public static final String EXTRA_WATCH_CLOCK_OFFSET = "device_watch_clock_offset";
     public static final String EXTRA_PHONE_CLOCK = "device_phone_clock";
 
     private static final String UUID_BATTERY_SERVICE =
@@ -96,33 +99,35 @@ public class DeviceConnection extends BluetoothGattCallback {
         broadcastUpdate();
     }
 
-    private void updateCharacteristicIfExists(String uuidService,
-                                              String uuidCharacteristic) {
+    private BluetoothGattCharacteristic getCharacteristic(String uuidService,
+                                                          String uuidCharacteristic) {
         BluetoothGattService service = mDeviceGatt.getService(UUID.fromString(uuidService));
         if (service == null) {
-            return;
+            return null;
         }
-        BluetoothGattCharacteristic characteristic =
-                service.getCharacteristic(UUID.fromString(uuidCharacteristic));
-        if (characteristic == null) {
-            return;
-        }
+        return service.getCharacteristic(UUID.fromString(uuidCharacteristic));
+    }
 
-        if (!mDeviceGatt.readCharacteristic(characteristic)) {
-            CharacteristicOperation op = new CharacteristicOperation(characteristic, false);
-            if (!mCharacteristicOperationsQueue.contains(op)) {
-                mCharacteristicOperationsQueue.add(op);
+    private void updateCharacteristicIfExists(BluetoothGattCharacteristic characteristic) {
+        if (characteristic != null) {
+            if (!mDeviceGatt.readCharacteristic(characteristic)) {
+                CharacteristicOperation op = new CharacteristicOperation(characteristic, false);
+                if (!mCharacteristicOperationsQueue.contains(op)) {
+                    mCharacteristicOperationsQueue.add(op);
+                }
             }
         }
     }
 
     public void updateCharacteristics() {
-        updateCharacteristicIfExists(UUID_BATTERY_SERVICE, UUID_BATTERY_LEVEL_CHARACTERISTIC);
-        updateCharacteristicIfExists(UUID_DEVICE_INFO_SERVICE,
-                UUID_DEVICE_INFO_SERIAL_NUMBER_CHARACTERISTIC);
-        updateCharacteristicIfExists(UUID_DEVICE_INFO_SERVICE,
-                UUID_DEVICE_INFO_SOFTWARE_REVISION_CHARACTERISTIC);
-        updateCharacteristicIfExists(UUID_WATCH_SERVICE, UUID_WATCH_CLOCK_CHARACTERISTIC);
+        updateCharacteristicIfExists(getCharacteristic(
+                UUID_BATTERY_SERVICE, UUID_BATTERY_LEVEL_CHARACTERISTIC));
+        updateCharacteristicIfExists(getCharacteristic(
+                UUID_DEVICE_INFO_SERVICE, UUID_DEVICE_INFO_SERIAL_NUMBER_CHARACTERISTIC));
+        updateCharacteristicIfExists(getCharacteristic(
+                UUID_DEVICE_INFO_SERVICE, UUID_DEVICE_INFO_SOFTWARE_REVISION_CHARACTERISTIC));
+        updateCharacteristicIfExists(getCharacteristic(
+                UUID_WATCH_SERVICE, UUID_WATCH_CLOCK_CHARACTERISTIC));
     }
 
     private void broadcastUpdate() {
@@ -153,6 +158,26 @@ public class DeviceConnection extends BluetoothGattCallback {
     }
 
     public String getAddress() { return mDevice.getAddress(); }
+
+    public void syncTime(Intent intent) {
+        BluetoothGattCharacteristic characteristic = getCharacteristic(
+                UUID_WATCH_SERVICE, UUID_WATCH_CLOCK_CHARACTERISTIC);
+
+        long phoneClockMillis = intent.getLongExtra(EXTRA_WATCH_CLOCK, -1L);
+        if (phoneClockMillis < 0L) {
+            phoneClockMillis = Calendar.getInstance().getTimeInMillis();
+        }
+        long watchClockBaseMillis = getWatchClockBaseCalendar().getTimeInMillis();
+        long watchClockMillis = (phoneClockMillis - watchClockBaseMillis);
+        characteristic.setValue(unsignedIntToBytes(watchClockMillis / 1000));
+
+        if (!mDeviceGatt.writeCharacteristic(characteristic)) {
+            CharacteristicOperation op = new CharacteristicOperation(characteristic, true);
+            if (!mCharacteristicOperationsQueue.contains(op)) {
+                mCharacteristicOperationsQueue.add(op);
+            }
+        }
+    }
 
     @Override
     public void onServicesDiscovered(BluetoothGatt gatt, int status) {
@@ -187,11 +212,29 @@ public class DeviceConnection extends BluetoothGattCallback {
         }
     }
 
-    public static long toUnsignedInt(byte[] bytes) {
+    private static long bytesToUnsignedInt(byte[] bytes) {
         ByteBuffer buffer = ByteBuffer.allocate(8).put(
                 new byte[] { 0, 0, 0, 0, bytes[3], bytes[2], bytes[1], bytes[0] });
         buffer.position(0);
         return buffer.getLong();
+    }
+
+    private static byte[] unsignedIntToBytes(long value) {
+        if (value > ((long) Integer.MAX_VALUE) * 2L) {
+            throw new IllegalStateException("Value too high");
+        }
+        byte[] bytes = new byte[8];
+        ByteBuffer.wrap(bytes).putLong(value);
+        byte[] bytesReversed = new byte[4];
+        bytesReversed[0] = bytes[7];
+        bytesReversed[1] = bytes[6];
+        bytesReversed[2] = bytes[5];
+        bytesReversed[3] = bytes[4];
+        return bytesReversed;
+    }
+
+    private static Calendar getWatchClockBaseCalendar() {
+        return new GregorianCalendar(2000, 2, 1);
     }
 
     @Override
@@ -231,8 +274,8 @@ public class DeviceConnection extends BluetoothGattCallback {
                     if (val == null) {
                         Log.e(TAG, "Could not read watch clock");
                     } else {
-                        long watchClockSeconds = toUnsignedInt(val);
-                        Calendar cal = new GregorianCalendar(2000, 2, 1);
+                        long watchClockSeconds = bytesToUnsignedInt(val);
+                        Calendar cal = getWatchClockBaseCalendar();
                         cal.setLenient(true);
                         while (watchClockSeconds > Integer.MAX_VALUE) {
                             cal.add(Calendar.SECOND, Integer.MAX_VALUE);
@@ -252,6 +295,24 @@ public class DeviceConnection extends BluetoothGattCallback {
                     ". Queuing again.");
             mCharacteristicOperationsQueue.add(
                     new CharacteristicOperation(characteristic, false));
+        }
+
+        executeNextCharacteristicOperation();
+    }
+
+    @Override
+    public void onCharacteristicWrite(BluetoothGatt gatt,
+                                      BluetoothGattCharacteristic characteristic, int status) {
+        super.onCharacteristicWrite(gatt, characteristic, status);
+
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            Log.e(TAG, "Characteristic written: " + characteristic.getUuid());
+            broadcastUpdate();
+        } else {
+            Log.e(TAG, "Failed to write characteristic: " + characteristic.getUuid() +
+                    ". Queuing again.");
+            mCharacteristicOperationsQueue.add(
+                    new CharacteristicOperation(characteristic, true));
         }
 
         executeNextCharacteristicOperation();

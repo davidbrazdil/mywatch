@@ -1,24 +1,27 @@
 package me.brazdil.mywatch;
 
+import android.app.Dialog;
+import android.app.TimePickerDialog;
 import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.preference.PreferenceManager;
+import android.support.v4.app.DialogFragment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.format.DateFormat;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
+import android.widget.TimePicker;
 
-import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.Collections;
-import java.util.Date;
-import java.util.GregorianCalendar;
+import java.util.Random;
 
 public class DeviceActivity extends AppCompatActivity {
     private static final String TAG = DeviceActivity.class.getSimpleName();
@@ -35,6 +38,11 @@ public class DeviceActivity extends AppCompatActivity {
     private TextView mTextDeviceSoftwareRevision;
     private TextView mTextWatchTime;
     private TextView mTextPhoneTime;
+    private Button mButtonSyncTime;
+    private Button mButtonSyncTimeRandom;
+    private Button mButtonSyncTimePicker;
+
+    private Random mRandom = new Random();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,6 +70,37 @@ public class DeviceActivity extends AppCompatActivity {
         };
 
         mDeviceUpdateIntentFilter = new IntentFilter(DeviceConnection.ACTION_DEVICE_UPDATE);
+
+        mButtonSyncTime = (Button) findViewById(R.id.btnSyncTime);
+        mButtonSyncTime.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                syncDeviceTime(-1L);
+            }
+        });
+
+        mButtonSyncTimeRandom = (Button) findViewById(R.id.btnSyncTimeRandom);
+        mButtonSyncTimeRandom.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                int offset = mRandom.nextInt(24 * 3600 * 1000);
+                syncDeviceTime(Calendar.getInstance().getTimeInMillis() + offset);
+            }
+        });
+
+        mButtonSyncTimePicker = (Button) findViewById(R.id.btnSyncTimePicker);
+        mButtonSyncTimePicker.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                TimePickerFragment fragment = new TimePickerFragment();
+                Bundle args = new Bundle();
+                args.putString(TimePickerFragment.ARG_DEVICE_ADDR,
+                        mTextDeviceAddress.getText().toString());
+                fragment.setArguments(args);
+                fragment.show(getSupportFragmentManager(), "timePicker");
+            }
+        });
+
     }
 
     @Override
@@ -100,6 +139,17 @@ public class DeviceActivity extends AppCompatActivity {
         }
     }
 
+    private void syncDeviceTime(long millis) {
+        syncDeviceTime(this, millis, mTextDeviceAddress.getText().toString());
+    }
+
+    private static void syncDeviceTime(Context context, long millis, String address) {
+        final Intent intent = new Intent(DeviceConnection.ACTION_DEVICE_SYNC_TIME);
+        intent.putExtra(DeviceConnection.EXTRA_ADDRESS, address);
+        intent.putExtra(DeviceConnection.EXTRA_WATCH_CLOCK, millis);
+        context.sendBroadcast(intent);
+    }
+
     private void onDeviceUpdate(Intent intent) {
         updateStringText(mTextDeviceName, intent, DeviceConnection.EXTRA_NAME);
         updateStringText(mTextDeviceAddress, intent, DeviceConnection.EXTRA_ADDRESS);
@@ -132,7 +182,7 @@ public class DeviceActivity extends AppCompatActivity {
         }
 
         final Calendar cal = Calendar.getInstance();
-        final DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss dd/MM/yyyy");
+        final SimpleDateFormat dateFormat = new SimpleDateFormat("HH:mm:ss dd/MM/yyyy");
 
         long watchClock = intent.getLongExtra(DeviceConnection.EXTRA_WATCH_CLOCK, -1);
         if (watchClock < 0) {
@@ -148,6 +198,34 @@ public class DeviceActivity extends AppCompatActivity {
         } else {
             cal.setTimeInMillis(phoneClock);
             mTextPhoneTime.setText(dateFormat.format(cal.getTime()));
+        }
+    }
+
+    public static class TimePickerFragment extends DialogFragment
+            implements TimePickerDialog.OnTimeSetListener {
+
+        public static final String ARG_DEVICE_ADDR = "device_address";
+
+        @Override
+        public Dialog onCreateDialog(Bundle savedInstanceState) {
+            // Use the current time as the default values for the picker
+            final Calendar c = Calendar.getInstance();
+            int hour = c.get(Calendar.HOUR_OF_DAY);
+            int minute = c.get(Calendar.MINUTE);
+
+            // Create a new instance of TimePickerDialog and return it
+            return new TimePickerDialog(getActivity(), this, hour, minute,
+                    DateFormat.is24HourFormat(getActivity()));
+        }
+
+        public void onTimeSet(TimePicker view, int hourOfDay, int minute) {
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.HOUR_OF_DAY, hourOfDay);
+            cal.set(Calendar.MINUTE, minute);
+            cal.clear(Calendar.SECOND);
+            cal.clear(Calendar.MILLISECOND);
+            DeviceActivity.syncDeviceTime(getActivity(), cal.getTimeInMillis(),
+                    getArguments().getString(ARG_DEVICE_ADDR));
         }
     }
 }
